@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
+from datetime import datetime
 from sidebar import render_sidebar
 
 st.set_page_config(
@@ -19,82 +20,83 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CONEXIÓN A GOOGLE SHEETS ---
-@st.cache_data(ttl=60)
-def load_data():
+conn = st.connection("gsheets", type="gsheets")
+
+@st.cache_data(ttl=1)
+def load_all_dashboard_data():
     try:
-        conn = st.connection("gsheets", type="gsheets")
-        # Lee la hoja principal (ajusta el nombre de la pestaña si es necesario, ej: "Ventas" o "Sheet1")
-        df_ventas = conn.read(worksheet="Ventas", ttl=0)
-        return df_ventas
-    except Exception as e:
-        # Si la pestaña aún no existe o hay error, devolvemos un DataFrame vacío para no romper la app
-        return pd.DataFrame()
+        df_v = conn.read(worksheet="Ventes-Caisse", ttl=0)
+    except:
+        df_v = pd.DataFrame()
+    try:
+        df_a = conn.read(worksheet="Achats-Depences", ttl=0)
+    except:
+        df_a = pd.DataFrame()
+    try:
+        df_i = conn.read(worksheet="Contrôle Inventaire", ttl=0)
+    except:
+        df_i = pd.DataFrame()
+    return df_v, df_a, df_i
 
-df = load_data()
+df_ventas, df_achats, df_inv = load_all_dashboard_data()
 
-# Cálculo de valores reales (si la tabla tiene datos, los calcula; si está vacía, muestra 0)
-total_ventas = df["Total"].sum() if not df.empty and "Total" in df.columns else 0.0
-redevance = total_ventas * 0.03
+total_ventas = df_ventas["Total Ventes"].sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
+redevance = df_ventas["Redevance Franchise 3%"].sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
+total_achats = df_achats["Prix Total"].sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
 
-html_code = f"""
+# Alertes péremption
+alertas_count = 0
+filas_alertas = ""
+fecha_actual = datetime(2026, 11, 7)
+
+if not df_inv.empty:
+    for _, row in df_inv.iterrows():
+        nom = str(row.get("Nom du Produit", ""))
+        stock = row.get("Stock Actuel", 0)
+        unite = str(row.get("Unité", ""))
+        exp = str(row.get("Date d'expiration", ""))
+        try:
+            exp_date = pd.to_datetime(exp, format='%d/%m/%Y', errors='coerce')
+            if pd.isna(exp_date):
+                exp_date = pd.to_datetime(exp, errors='coerce')
+            dias = (exp_date - pd.Timestamp(fecha_actual)).days if pd.notna(exp_date) else 99
+        except:
+            dias = 99
+            
+        if dias <= 5:
+            alertas_count += 1
+            badge = f'<span class="badge bg-danger">🔴 Urgent ({dias} jours)</span>' if dias >= 0 else '<span class="badge bg-danger">🔴 Expiré</span>'
+            filas_alertas += f'<tr><td class="fw-bold">{nom}</td><td>{stock} {unite}</td><td>{exp}</td><td>{badge}</td></tr>'
+
+html_dashboard = f"""
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
   <style>
     body {{ background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 0; }}
     .main-content {{ padding: 2rem; }}
-    .header-card {{ background: #ffffff; border-radius: 12px; padding: 1.25rem 1.75rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }}
-    .stat-card {{ background: #ffffff; border-radius: 12px; padding: 1.25rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); height: 100%; }}
+    .header-card, .stat-card, .table-card {{ background: #ffffff; border-radius: 12px; padding: 1.25rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }}
     .stat-value {{ font-size: 1.8rem; font-weight: 700; color: #0f172a; }}
     .stat-label {{ font-size: 0.875rem; color: #64748b; }}
-    .chart-card, .table-card {{ background: #ffffff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }}
-    .date-picker-btn {{ background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.85rem; font-size: 0.85rem; font-weight: 600; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
-    .date-picker-btn:hover {{ background: #f8fafc; border-color: #94a3b8; }}
   </style>
 </head>
 <body>
-
   <div class="main-content">
     <div class="header-card d-flex justify-content-between align-items-center">
       <div>
         <h3 class="m-0 fw-bold"><i class="bi bi-bar-chart-fill text-warning me-2"></i>Tableau de Bord</h3>
-        <p class="text-muted m-0 small mt-1">Aperçu général des ventes, canaux de paiement et alertes de stock</p>
+        <p class="text-muted m-0 small mt-1">Données en temps réel synchronisées avec Google Sheets</p>
       </div>
-      <button class="date-picker-btn" id="select-dates-btn">
-        <i class="bi bi-calendar-range text-warning"></i>
-        <span id="date-range-text">01/11/2026 - 07/11/2026</span>
-        <i class="bi bi-chevron-down text-muted ms-1" style="font-size: 0.75rem;"></i>
-      </button>
     </div>
 
     <div class="row g-3 mb-4">
       <div class="col-md-3"><div class="stat-card"><div class="stat-label">Ventes Totales</div><div class="stat-value">{total_ventas:,.2f} €</div></div></div>
       <div class="col-md-3"><div class="stat-card"><div class="stat-label">Redevance Franchise (3%)</div><div class="stat-value text-danger">{redevance:,.2f} €</div></div></div>
-      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Achats Totaux</div><div class="stat-value">380.50 €</div></div></div>
-      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Alertes Péremption</div><div class="stat-value text-warning">2 produits</div></div></div>
-    </div>
-
-    <div class="row">
-      <div class="col-md-7">
-        <div class="chart-card">
-          <h6 class="fw-bold mb-3"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Évolution des Ventes Totales</h6>
-          <canvas id="salesChart" height="150"></canvas>
-        </div>
-      </div>
-      <div class="col-md-5">
-        <div class="chart-card">
-          <h6 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill me-2 text-warning"></i>Répartition par Mode de Paiement</h6>
-          <canvas id="paymentsChart" height="180"></canvas>
-        </div>
-      </div>
+      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Achats Totaux</div><div class="stat-value">{total_achats:,.2f} €</div></div></div>
+      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Alertes Péremption</div><div class="stat-value text-warning">{alertas_count} produits</div></div></div>
     </div>
 
     <div class="table-card">
@@ -105,52 +107,14 @@ html_code = f"""
             <tr><th>Produit</th><th>Quantité</th><th>Date de Péremption</th><th>Statut</th></tr>
           </thead>
           <tbody>
-            <tr><td class="fw-bold">Mozzarella Fraîche</td><td>4.5 kg</td><td>09/11/2026</td><td><span class="badge bg-danger">🔴 Urgent (2 jours)</span></td></tr>
-            <tr><td class="fw-bold">Pâte à Pizza (Boules)</td><td>18 unités</td><td>10/11/2026</td><td><span class="badge bg-danger">🔴 Urgent (3 jours)</span></td></tr>
-            <tr><td class="fw-bold">Jambon Blanc</td><td>2.2 kg</td><td>12/11/2026</td><td><span class="badge bg-warning text-dark">🟠 Attention</span></td></tr>
+            {filas_alertas if filas_alertas else '<tr><td colspan="4" class="text-center text-muted">Aucun produit en alerte</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>
   </div>
-
-  <script>
-    const picker = new Litepicker({{
-      element: document.getElementById('select-dates-btn'),
-      singleMode: false,
-      numberOfMonths: 2,
-      numberOfColumns: 2,
-      format: 'DD/MM/YYYY',
-      startDate: '2026-11-01',
-      endDate: '2026-11-07',
-      setup: (picker) => {{
-        picker.on('selected', (date1, date2) => {{
-          document.getElementById('date-range-text').innerText = `${{date1.format('DD/MM/YYYY')}} - ${{date2.format('DD/MM/YYYY')}}`;
-        }});
-      }}
-    }});
-
-    new Chart(document.getElementById('salesChart').getContext('2d'), {{
-      type: 'line',
-      data: {{
-        labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
-        datasets: [{{ label: 'Ventes (€)', data: [150, 210, 180, 260, 390, 510, 420], borderColor: '#ea580c', backgroundColor: 'rgba(234, 88, 12, 0.1)', fill: true, tension: 0.3 }}]
-      }},
-      options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }} }}
-    }});
-
-    new Chart(document.getElementById('paymentsChart').getContext('2d'), {{
-      type: 'doughnut',
-      data: {{
-        labels: ['Carte (CB)', 'Livraison (Uber/Glovo)', 'Espèces'],
-        datasets: [{{ data: [52, 33, 15], backgroundColor: ['#2563eb', '#f59e0b', '#10b981'] }}]
-      }},
-      options: {{ responsive: true, plugins: {{ legend: {{ position: 'bottom' }} }} }}
-    }});
-  </script>
-
 </body>
 </html>
 """
 
-components.html(html_code, height=1400, scrolling=False)
+components.html(html_dashboard, height=800, scrolling=False)
