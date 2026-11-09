@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import streamlit.components.v1 as components
 from sidebar import render_sidebar
 
@@ -18,7 +19,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-html_code = """
+# --- CONEXIÓN A GOOGLE SHEETS ---
+@st.cache_data(ttl=60)
+def load_data():
+    try:
+        conn = st.connection("gsheets", type="gsheets")
+        # Lee la hoja principal (ajusta el nombre de la pestaña si es necesario, ej: "Ventas" o "Sheet1")
+        df_ventas = conn.read(worksheet="Ventas", ttl=0)
+        return df_ventas
+    except Exception as e:
+        # Si la pestaña aún no existe o hay error, devolvemos un DataFrame vacío para no romper la app
+        return pd.DataFrame()
+
+df = load_data()
+
+# Cálculo de valores reales (si la tabla tiene datos, los calcula; si está vacía, muestra 0)
+total_ventas = df["Total"].sum() if not df.empty and "Total" in df.columns else 0.0
+redevance = total_ventas * 0.03
+
+html_code = f"""
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -30,15 +49,15 @@ html_code = """
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
   <style>
-    body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 0; }
-    .main-content { padding: 2rem; }
-    .header-card { background: #ffffff; border-radius: 12px; padding: 1.25rem 1.75rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }
-    .stat-card { background: #ffffff; border-radius: 12px; padding: 1.25rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); height: 100%; }
-    .stat-value { font-size: 1.8rem; font-weight: 700; color: #0f172a; }
-    .stat-label { font-size: 0.875rem; color: #64748b; }
-    .chart-card, .table-card { background: #ffffff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }
-    .date-picker-btn { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.85rem; font-size: 0.85rem; font-weight: 600; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    .date-picker-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+    body {{ background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 0; }}
+    .main-content {{ padding: 2rem; }}
+    .header-card {{ background: #ffffff; border-radius: 12px; padding: 1.25rem 1.75rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }}
+    .stat-card {{ background: #ffffff; border-radius: 12px; padding: 1.25rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); height: 100%; }}
+    .stat-value {{ font-size: 1.8rem; font-weight: 700; color: #0f172a; }}
+    .stat-label {{ font-size: 0.875rem; color: #64748b; }}
+    .chart-card, .table-card {{ background: #ffffff; border-radius: 12px; padding: 1.5rem; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 1.5rem; }}
+    .date-picker-btn {{ background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.85rem; font-size: 0.85rem; font-weight: 600; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
+    .date-picker-btn:hover {{ background: #f8fafc; border-color: #94a3b8; }}
   </style>
 </head>
 <body>
@@ -57,8 +76,8 @@ html_code = """
     </div>
 
     <div class="row g-3 mb-4">
-      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Ventes Totales</div><div class="stat-value">1 420.00 €</div></div></div>
-      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Redevance Franchise (3%)</div><div class="stat-value text-danger">42.60 €</div></div></div>
+      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Ventes Totales</div><div class="stat-value">{total_ventas:,.2f} €</div></div></div>
+      <div class="col-md-3"><div class="stat-card"><div class="stat-label">Redevance Franchise (3%)</div><div class="stat-value text-danger">{redevance:,.2f} €</div></div></div>
       <div class="col-md-3"><div class="stat-card"><div class="stat-label">Achats Totaux</div><div class="stat-value">380.50 €</div></div></div>
       <div class="col-md-3"><div class="stat-card"><div class="stat-label">Alertes Péremption</div><div class="stat-value text-warning">2 produits</div></div></div>
     </div>
@@ -96,7 +115,7 @@ html_code = """
   </div>
 
   <script>
-    const picker = new Litepicker({
+    const picker = new Litepicker({{
       element: document.getElementById('select-dates-btn'),
       singleMode: false,
       numberOfMonths: 2,
@@ -104,30 +123,30 @@ html_code = """
       format: 'DD/MM/YYYY',
       startDate: '2026-11-01',
       endDate: '2026-11-07',
-      setup: (picker) => {
-        picker.on('selected', (date1, date2) => {
-          document.getElementById('date-range-text').innerText = `${date1.format('DD/MM/YYYY')} - ${date2.format('DD/MM/YYYY')}`;
-        });
-      }
-    });
+      setup: (picker) => {{
+        picker.on('selected', (date1, date2) => {{
+          document.getElementById('date-range-text').innerText = `${{date1.format('DD/MM/YYYY')}} - ${{date2.format('DD/MM/YYYY')}}`;
+        }});
+      }}
+    }});
 
-    new Chart(document.getElementById('salesChart').getContext('2d'), {
+    new Chart(document.getElementById('salesChart').getContext('2d'), {{
       type: 'line',
-      data: {
+      data: {{
         labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
-        datasets: [{ label: 'Ventes (€)', data: [150, 210, 180, 260, 390, 510, 420], borderColor: '#ea580c', backgroundColor: 'rgba(234, 88, 12, 0.1)', fill: true, tension: 0.3 }]
-      },
-      options: { responsive: true, plugins: { legend: { display: false } } }
-    });
+        datasets: [{{ label: 'Ventes (€)', data: [150, 210, 180, 260, 390, 510, 420], borderColor: '#ea580c', backgroundColor: 'rgba(234, 88, 12, 0.1)', fill: true, tension: 0.3 }}]
+      }},
+      options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }} }}
+    }});
 
-    new Chart(document.getElementById('paymentsChart').getContext('2d'), {
+    new Chart(document.getElementById('paymentsChart').getContext('2d'), {{
       type: 'doughnut',
-      data: {
+      data: {{
         labels: ['Carte (CB)', 'Livraison (Uber/Glovo)', 'Espèces'],
-        datasets: [{ data: [52, 33, 15], backgroundColor: ['#2563eb', '#f59e0b', '#10b981'] }]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-    });
+        datasets: [{{ data: [52, 33, 15], backgroundColor: ['#2563eb', '#f59e0b', '#10b981'] }}]
+      }},
+      options: {{ responsive: true, plugins: {{ legend: {{ position: 'bottom' }} }} }}
+    }});
   </script>
 
 </body>
