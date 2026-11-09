@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
 
 st.set_page_config(page_title="PIZZA TIFOSI - Ventes / Caisse", page_icon="🛒", layout="wide")
 render_sidebar()
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_ventas():
@@ -18,8 +19,7 @@ def load_ventas():
 
 df_ventas = load_ventas()
 
-# FORMULARIO DE REGISTRO DIRECTO A GOOGLE SHEETS
-with st.expander("➕ Enregistrer une Nouvelle Journée de Vente (Sincronización Directa)", expanded=False):
+with st.expander("➕ Enregistrer une Nouvelle Journée de Vente", expanded=False):
     with st.form("form_nueva_venta"):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -58,7 +58,6 @@ with st.expander("➕ Enregistrer une Nouvelle Journée de Vente (Sincronizació
             except Exception as e:
                 st.error(f"Error al guardar: {e}")
 
-# TABLA HTML DINÁMICA DE LECTURA
 filas_html = ""
 if not df_ventas.empty:
     for _, row in df_ventas.iterrows():
@@ -112,4 +111,4 @@ html_ventas = f"""
 </body>
 </html>
 """
-components.html(html_ventas, height=900, scrolling=False)
+components.html(html_ventas, height=800, scrolling=False)

@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
 
 st.set_page_config(page_title="PIZZA TIFOSI - Inventaire & Stocks", page_icon="📦", layout="wide")
 render_sidebar()
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_inventaire():
@@ -18,8 +19,7 @@ def load_inventaire():
 
 df_inventaire = load_inventaire()
 
-# FORMULARIO DE REGISTRO DIRECTO A GOOGLE SHEETS
-with st.expander("➕ Ajouter un Article au Stock (Sincronización Directa)", expanded=False):
+with st.expander("➕ Ajouter un Article au Stock", expanded=False):
     with st.form("form_nuevo_article"):
         col1, col2 = st.columns(2)
         with col1:
@@ -53,7 +53,6 @@ with st.expander("➕ Ajouter un Article au Stock (Sincronización Directa)", ex
             except Exception as e:
                 st.error(f"Error al guardar: {e}")
 
-# TABLA VISUAL
 filas_html = ""
 fecha_actual = datetime(2026, 11, 7)
 if not df_inventaire.empty:

@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
 
 st.set_page_config(page_title="PIZZA TIFOSI - Charges Fixes", page_icon="🧾", layout="wide")
 render_sidebar()
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_charges():
@@ -18,7 +19,7 @@ def load_charges():
 
 df_charges = load_charges()
 
-with st.expander("➕ Ajouter une Charge Fixe (Sincronización Directa)", expanded=False):
+with st.expander("➕ Ajouter une Charge Fixe", expanded=False):
     with st.form("form_nueva_charge"):
         col1, col2 = st.columns(2)
         with col1:

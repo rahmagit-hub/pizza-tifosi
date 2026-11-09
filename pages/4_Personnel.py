@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
 
 st.set_page_config(page_title="PIZZA TIFOSI - Personnel & Paie", page_icon="👥", layout="wide")
 render_sidebar()
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_personnel():
@@ -18,7 +19,7 @@ def load_personnel():
 
 df_personnel = load_personnel()
 
-with st.expander("➕ Ajouter un Paiement Personnel (Sincronización Directa)", expanded=False):
+with st.expander("➕ Ajouter un Paiement Personnel", expanded=False):
     with st.form("form_nuevo_employe"):
         col1, col2 = st.columns(2)
         with col1:

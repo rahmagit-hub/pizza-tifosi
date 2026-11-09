@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
 
 st.set_page_config(
@@ -20,7 +21,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_all_dashboard_data():
@@ -44,7 +45,6 @@ total_ventas = df_ventas["Total Ventes"].sum() if not df_ventas.empty and "Total
 redevance = df_ventas["Redevance Franchise 3%"].sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
 total_achats = df_achats["Prix Total"].sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
 
-# Alertes péremption
 alertas_count = 0
 filas_alertas = ""
 fecha_actual = datetime(2026, 11, 7)
@@ -100,7 +100,7 @@ html_dashboard = f"""
     </div>
 
     <div class="table-card">
-      <h6 class="fw-bold mb-3"><i class="bi bi-exclamation-triangle-fill me-2 text-danger"></i>Alertes de Péremption (Prochains à caducar)</h6>
+      <h6 class="fw-bold mb-3"><i class="bi bi-exclamation-triangle-fill me-2 text-danger"></i>Alertes de Péremption</h6>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 small">
           <thead class="table-light">
