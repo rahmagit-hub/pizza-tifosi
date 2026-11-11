@@ -1,8 +1,8 @@
-import html
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
-from streamlit_gsheets import GSheetsConnection
+import plotly.express as px
+from datetime import datetime
 from sidebar import render_sidebar
 
 st.set_page_config(
@@ -21,12 +21,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = st.connection("gsheets", type="gsheets")
 
+@st.cache_data(ttl=1)
+def load_all_dashboard_data():
+    try:
+        df_v = conn.read(worksheet="Ventes-Caisse", ttl=0)
+    except Exception:
+        df_v = pd.DataFrame()
+    try:
+        df_a = conn.read(worksheet="Achats-Depences", ttl=0)
+    except Exception:
+        df_a = pd.DataFrame()
+    try:
+        df_i = conn.read(worksheet="Contrôle Inventaire", ttl=0)
+    except Exception:
+        df_i = pd.DataFrame()
+    return df_v, df_a, df_i
 
-# ---------- Helpers ----------
+df_ventas, df_achats, df_inv = load_all_dashboard_data()
+
+# ---------- Funciones de parseo seguro ----------
 def parse_num(v):
-    """Convierte '1.234,56 €', '12,5', 12.5, NaN... en float."""
     if pd.isna(v):
         return 0.0
     if isinstance(v, (int, float)):
@@ -39,82 +55,34 @@ def parse_num(v):
     except ValueError:
         return 0.0
 
+total_ventas = df_ventas["Total Ventes"].map(parse_num).sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
+redevance = df_ventas["Redevance Franchise 3%"].map(parse_num).sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
+total_achats = df_achats["Prix Total"].map(parse_num).sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
 
-def col_sum(df, col):
-    """Suma de una columna (None si no existe)."""
-    if df.empty or col not in df.columns:
-        return None
-    return df[col].map(parse_num).sum()
+# Alertes péremption
+alertas_count = 0
+filas_alertas = ""
+fecha_actual = datetime(2026, 11, 7)
 
-
-def txt(v):
-    """Texto seguro para HTML ('' si está vacío)."""
-    return "" if pd.isna(v) else html.escape(str(v))
-
-
-# ---------- Carga de datos ----------
-@st.cache_data(ttl=60)
-def load_all_dashboard_data():
-    errores = []
-    hojas = {}
-    for clave, nombre in [
-        ("ventes", "Ventes-Caisse"),
-        ("achats", "Achats-Depences"),
-        ("inv", "Contrôle Inventaire"),
-    ]:
-        try:
-            hojas[clave] = conn.read(worksheet=nombre, ttl=0).dropna(how="all")
-        except Exception as e:
-            hojas[clave] = pd.DataFrame()
-            errores.append(f"No se pudo leer la hoja «{nombre}»: {e}")
-    return hojas["ventes"], hojas["achats"], hojas["inv"], errores
-
-
-df_ventas, df_achats, df_inv, errores = load_all_dashboard_data()
-
-for err in errores:
-    st.warning(err)
-
-# ---------- Cálculos ----------
-total_ventas = col_sum(df_ventas, "Total Ventes") or 0.0
-redevance = col_sum(df_ventas, "Redevance Franchise 3%")
-if redevance is None:
-    redevance = total_ventas * 0.03
-total_achats = col_sum(df_achats, "Prix Total") or 0.0
-
-# Fecha real de hoy (antes estaba fija en 07/11/2026)
-hoy = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None).normalize()
-
-alertas = []
 if not df_inv.empty:
     for _, row in df_inv.iterrows():
-        exp_date = pd.to_datetime(row.get("Date d'expiration"), dayfirst=True, errors="coerce")
-        if pd.isna(exp_date):
-            continue
-        dias = (exp_date.normalize() - hoy).days
+        nom = str(row.get("Nom du Produit", ""))
+        stock = row.get("Stock Actuel", 0)
+        unite = str(row.get("Unité", ""))
+        exp = str(row.get("Date d'expiration", ""))
+        try:
+            exp_date = pd.to_datetime(exp, format='%d/%m/%Y', errors='coerce')
+            if pd.isna(exp_date):
+                exp_date = pd.to_datetime(exp, errors='coerce')
+            dias = (exp_date - pd.Timestamp(fecha_actual)).days if pd.notna(exp_date) else 99
+        except Exception:
+            dias = 99
+            
         if dias <= 5:
-            alertas.append((dias, row, exp_date))
+            alertas_count += 1
+            badge = f'<span class="badge bg-danger">🔴 Urgent ({dias} jours)</span>' if dias >= 0 else '<span class="badge bg-danger">🔴 Expiré</span>'
+            filas_alertas += f'<tr><td class="fw-bold">{nom}</td><td>{stock} {unite}</td><td>{exp}</td><td>{badge}</td></tr>'
 
-alertas.sort(key=lambda x: x[0])
-alertas_count = len(alertas)
-
-filas_alertas = ""
-for dias, row, exp_date in alertas:
-    nom = txt(row.get("Nom du Produit"))
-    stock = txt(row.get("Stock Actuel"))
-    unite = txt(row.get("Unité"))
-    if dias < 0:
-        badge = '<span class="badge bg-danger">🔴 Expiré</span>'
-    else:
-        badge = f'<span class="badge bg-danger">🔴 Urgent ({dias} jours)</span>'
-    filas_alertas += (
-        f'<tr><td class="fw-bold">{nom}</td><td>{stock} {unite}</td>'
-        f'<td>{exp_date.strftime("%d/%m/%Y")}</td><td>{badge}</td></tr>'
-    )
-
-sin_alertas = '<tr><td colspan="4" class="text-center text-muted">Aucun produit en alerte</td></tr>'
-
-# ---------- HTML ----------
 html_dashboard = f"""
 <!DOCTYPE html>
 <html lang="fr">
@@ -135,7 +103,7 @@ html_dashboard = f"""
     <div class="header-card d-flex justify-content-between align-items-center">
       <div>
         <h3 class="m-0 fw-bold"><i class="bi bi-bar-chart-fill text-warning me-2"></i>Tableau de Bord</h3>
-        <p class="text-muted m-0 small mt-1">Données synchronisées avec Google Sheets (mise à jour chaque minute)</p>
+        <p class="text-muted m-0 small mt-1">Données en temps réel synchronisées avec Google Sheets</p>
       </div>
     </div>
 
@@ -147,14 +115,14 @@ html_dashboard = f"""
     </div>
 
     <div class="table-card">
-      <h6 class="fw-bold mb-3"><i class="bi bi-exclamation-triangle-fill me-2 text-danger"></i>Alertes de Péremption</h6>
+      <h6 class="fw-bold mb-3"><i class="bi bi-exclamation-triangle-fill me-2 text-danger"></i>Alertes de Péremption (Prochains à caducar)</h6>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 small">
           <thead class="table-light">
             <tr><th>Produit</th><th>Quantité</th><th>Date de Péremption</th><th>Statut</th></tr>
           </thead>
           <tbody>
-            {filas_alertas if filas_alertas else sin_alertas}
+            {filas_alertas if filas_alertas else '<tr><td colspan="4" class="text-center text-muted">Aucun produit en alerte</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -164,4 +132,66 @@ html_dashboard = f"""
 </html>
 """
 
-components.html(html_dashboard, height=800, scrolling=True)
+components.html(html_dashboard, height=520, scrolling=False)
+
+# ---------- Sección de Gráficos Analíticos en Francés ----------
+st.markdown("<h3 style='margin-left: 2rem; margin-top: 1rem; color: #0f172a; font-weight: 700;'>📊 Analyses et Suivi des Ventes</h3>", unsafe_allow_html=True)
+
+col_g1, col_g2 = st.columns(2)
+
+with col_g1:
+    st.markdown("##### 📈 Évolution des Ventes Totales")
+    if not df_ventas.empty and "Total Ventes" in df_ventas.columns:
+        df_ventas["Total Ventes Num"] = df_ventas["Total Ventes"].map(parse_num)
+        col_fecha = "Date" if "Date" in df_ventas.columns else df_ventas.columns[0]
+        
+        fig_ventas = px.line(
+            df_ventas,
+            x=col_fecha,
+            y="Total Ventes Num",
+            markers=True,
+            title="Développement des Ventes au Fil du Temps",
+            color_discrete_sequence=["#e74c3c"]
+        )
+        fig_ventas.update_layout(
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
+            margin=dict(t=30, b=20, l=20, r=20),
+            xaxis_title="Date",
+            yaxis_title="Montant Total (€)"
+        )
+        st.plotly_chart(fig_ventas, use_container_width=True)
+    else:
+        st.info("Aucune donnée de vente disponible pour le graphique.")
+
+with col_g2:
+    st.markdown("##### 💳 Répartition par Méthode de Paiement")
+    if not df_ventas.empty:
+        # Detectar la columna de método de pago (busca 'Paiement', 'Mode', 'Type' o usa la disponible)
+        col_pago = None
+        for c in df_ventas.columns:
+            if any(k in c.lower() for k in ["paiement", "mode", "reglement", "carte", "espece"]):
+                col_pago = c
+                break
+        if not col_pago and len(df_ventas.columns) > 1:
+            col_pago = df_ventas.columns[1] # Alternativa por defecto
+            
+        if col_pago:
+            df_ventas["Total Ventes Num"] = df_ventas["Total Ventes"].map(parse_num) if "Total Ventes" in df_ventas.columns else 1
+            fig_pago = px.pie(
+                df_ventas,
+                names=col_pago,
+                values="Total Ventes Num" if "Total Ventes" in df_ventas.columns else None,
+                hole=0.4,
+                title="Part des Ventes par Méthode (Carte, Espèces, Livraison...)",
+                color_discrete_sequence=px.colors.sequential.RdBu
+            )
+            fig_pago.update_layout(
+                paper_bgcolor="#ffffff",
+                margin=dict(t=30, b=20, l=20, r=20)
+            )
+            st.plotly_chart(fig_pago, use_container_width=True)
+        else:
+            st.info("Colonne de méthode de paiement introuvable dans la feuille.")
+    else:
+        st.info("Aucune donnée disponible pour la répartition.")
