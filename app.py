@@ -27,7 +27,6 @@ creds = service_account.Credentials.from_service_account_info(cfg)
 st.success("Credenciales OK")
 
 conn = st.connection("gsheets", type="gsheets")
-
 @st.cache_data(ttl=1)
 def load_all_dashboard_data():
     try:
