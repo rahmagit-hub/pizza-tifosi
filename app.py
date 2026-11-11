@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
+from google.oauth2 import service_account
 
 st.set_page_config(
     page_title="PIZZA TIFOSI - Tableau de Bord",
@@ -20,6 +21,11 @@ st.markdown("""
     .block-container { padding: 1rem 0rem 0rem 0rem !important; max-width: 100% !important; }
     </style>
 """, unsafe_allow_html=True)
+cfg = dict(st.secrets["connections"]["gsheets"])
+st.write(sorted(cfg.keys()))
+st.write(len(cfg.get("private_key", "")), cfg.get("private_key", "")[:40], repr(cfg.get("private_key", "")[-30:]))
+creds = service_account.Credentials.from_service_account_info(cfg)
+st.success("Credenciales OK")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
