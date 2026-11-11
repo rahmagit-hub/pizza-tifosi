@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
-import plotly.express as px
 from datetime import datetime
 from sidebar import render_sidebar
 
@@ -41,23 +40,9 @@ def load_all_dashboard_data():
 
 df_ventas, df_achats, df_inv = load_all_dashboard_data()
 
-# ---------- Funciones de parseo seguro ----------
-def parse_num(v):
-    if pd.isna(v):
-        return 0.0
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).replace("€", "").replace("\xa0", "").replace(" ", "").strip()
-    if "," in s:
-        s = s.replace(".", "").replace(",", ".")
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
-
-total_ventas = df_ventas["Total Ventes"].map(parse_num).sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
-redevance = df_ventas["Redevance Franchise 3%"].map(parse_num).sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
-total_achats = df_achats["Prix Total"].map(parse_num).sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
+total_ventas = df_ventas["Total Ventes"].sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
+redevance = df_ventas["Redevance Franchise 3%"].sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
+total_achats = df_achats["Prix Total"].sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
 
 # Alertes péremption
 alertas_count = 0
@@ -132,66 +117,4 @@ html_dashboard = f"""
 </html>
 """
 
-components.html(html_dashboard, height=520, scrolling=False)
-
-# ---------- Sección de Gráficos Analíticos en Francés ----------
-st.markdown("<h3 style='margin-left: 2rem; margin-top: 1rem; color: #0f172a; font-weight: 700;'>📊 Analyses et Suivi des Ventes</h3>", unsafe_allow_html=True)
-
-col_g1, col_g2 = st.columns(2)
-
-with col_g1:
-    st.markdown("##### 📈 Évolution des Ventes Totales")
-    if not df_ventas.empty and "Total Ventes" in df_ventas.columns:
-        df_ventas["Total Ventes Num"] = df_ventas["Total Ventes"].map(parse_num)
-        col_fecha = "Date" if "Date" in df_ventas.columns else df_ventas.columns[0]
-        
-        fig_ventas = px.line(
-            df_ventas,
-            x=col_fecha,
-            y="Total Ventes Num",
-            markers=True,
-            title="Développement des Ventes au Fil du Temps",
-            color_discrete_sequence=["#e74c3c"]
-        )
-        fig_ventas.update_layout(
-            paper_bgcolor="#ffffff",
-            plot_bgcolor="#ffffff",
-            margin=dict(t=30, b=20, l=20, r=20),
-            xaxis_title="Date",
-            yaxis_title="Montant Total (€)"
-        )
-        st.plotly_chart(fig_ventas, use_container_width=True)
-    else:
-        st.info("Aucune donnée de vente disponible pour le graphique.")
-
-with col_g2:
-    st.markdown("##### 💳 Répartition par Méthode de Paiement")
-    if not df_ventas.empty:
-        # Detectar la columna de método de pago (busca 'Paiement', 'Mode', 'Type' o usa la disponible)
-        col_pago = None
-        for c in df_ventas.columns:
-            if any(k in c.lower() for k in ["paiement", "mode", "reglement", "carte", "espece"]):
-                col_pago = c
-                break
-        if not col_pago and len(df_ventas.columns) > 1:
-            col_pago = df_ventas.columns[1] # Alternativa por defecto
-            
-        if col_pago:
-            df_ventas["Total Ventes Num"] = df_ventas["Total Ventes"].map(parse_num) if "Total Ventes" in df_ventas.columns else 1
-            fig_pago = px.pie(
-                df_ventas,
-                names=col_pago,
-                values="Total Ventes Num" if "Total Ventes" in df_ventas.columns else None,
-                hole=0.4,
-                title="Part des Ventes par Méthode (Carte, Espèces, Livraison...)",
-                color_discrete_sequence=px.colors.sequential.RdBu
-            )
-            fig_pago.update_layout(
-                paper_bgcolor="#ffffff",
-                margin=dict(t=30, b=20, l=20, r=20)
-            )
-            st.plotly_chart(fig_pago, use_container_width=True)
-        else:
-            st.info("Colonne de méthode de paiement introuvable dans la feuille.")
-    else:
-        st.info("Aucune donnée disponible pour la répartition.")
+components.html(html_dashboard, height=800, scrolling=False)
