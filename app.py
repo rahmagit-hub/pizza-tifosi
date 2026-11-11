@@ -1,10 +1,9 @@
+import html
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
-from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 from sidebar import render_sidebar
-from google.oauth2 import service_account
 
 st.set_page_config(
     page_title="PIZZA TIFOSI - Tableau de Bord",
@@ -21,59 +20,101 @@ st.markdown("""
     .block-container { padding: 1rem 0rem 0rem 0rem !important; max-width: 100% !important; }
     </style>
 """, unsafe_allow_html=True)
-cfg = dict(st.secrets["connections"]["gsheets"])
-st.write(sorted(cfg.keys()))
-st.write(len(cfg.get("private_key", "")), cfg.get("private_key", "")[:40], repr(cfg.get("private_key", "")[-30:]))
-creds = service_account.Credentials.from_service_account_info(cfg)
-st.success("Credenciales OK")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=1)
+
+# ---------- Helpers ----------
+def parse_num(v):
+    """Convierte '1.234,56 €', '12,5', 12.5, NaN... en float."""
+    if pd.isna(v):
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace("€", "").replace("\xa0", "").replace(" ", "").strip()
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def col_sum(df, col):
+    """Suma de una columna (None si no existe)."""
+    if df.empty or col not in df.columns:
+        return None
+    return df[col].map(parse_num).sum()
+
+
+def txt(v):
+    """Texto seguro para HTML ('' si está vacío)."""
+    return "" if pd.isna(v) else html.escape(str(v))
+
+
+# ---------- Carga de datos ----------
+@st.cache_data(ttl=60)
 def load_all_dashboard_data():
-    try:
-        df_v = conn.read(worksheet="Ventes-Caisse", ttl=0)
-    except:
-        df_v = pd.DataFrame()
-    try:
-        df_a = conn.read(worksheet="Achats-Depences", ttl=0)
-    except:
-        df_a = pd.DataFrame()
-    try:
-        df_i = conn.read(worksheet="Contrôle Inventaire", ttl=0)
-    except:
-        df_i = pd.DataFrame()
-    return df_v, df_a, df_i
+    errores = []
+    hojas = {}
+    for clave, nombre in [
+        ("ventes", "Ventes-Caisse"),
+        ("achats", "Achats-Depences"),
+        ("inv", "Contrôle Inventaire"),
+    ]:
+        try:
+            hojas[clave] = conn.read(worksheet=nombre, ttl=0).dropna(how="all")
+        except Exception as e:
+            hojas[clave] = pd.DataFrame()
+            errores.append(f"No se pudo leer la hoja «{nombre}»: {e}")
+    return hojas["ventes"], hojas["achats"], hojas["inv"], errores
 
-df_ventas, df_achats, df_inv = load_all_dashboard_data()
 
-total_ventas = df_ventas["Total Ventes"].sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
-redevance = df_ventas["Redevance Franchise 3%"].sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
-total_achats = df_achats["Prix Total"].sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
+df_ventas, df_achats, df_inv, errores = load_all_dashboard_data()
 
-alertas_count = 0
-filas_alertas = ""
-fecha_actual = datetime(2026, 11, 7)
+for err in errores:
+    st.warning(err)
 
+# ---------- Cálculos ----------
+total_ventas = col_sum(df_ventas, "Total Ventes") or 0.0
+redevance = col_sum(df_ventas, "Redevance Franchise 3%")
+if redevance is None:
+    redevance = total_ventas * 0.03
+total_achats = col_sum(df_achats, "Prix Total") or 0.0
+
+# Fecha real de hoy (antes estaba fija en 07/11/2026)
+hoy = pd.Timestamp.now(tz="Europe/Madrid").tz_localize(None).normalize()
+
+alertas = []
 if not df_inv.empty:
     for _, row in df_inv.iterrows():
-        nom = str(row.get("Nom du Produit", ""))
-        stock = row.get("Stock Actuel", 0)
-        unite = str(row.get("Unité", ""))
-        exp = str(row.get("Date d'expiration", ""))
-        try:
-            exp_date = pd.to_datetime(exp, format='%d/%m/%Y', errors='coerce')
-            if pd.isna(exp_date):
-                exp_date = pd.to_datetime(exp, errors='coerce')
-            dias = (exp_date - pd.Timestamp(fecha_actual)).days if pd.notna(exp_date) else 99
-        except:
-            dias = 99
-            
+        exp_date = pd.to_datetime(row.get("Date d'expiration"), dayfirst=True, errors="coerce")
+        if pd.isna(exp_date):
+            continue
+        dias = (exp_date.normalize() - hoy).days
         if dias <= 5:
-            alertas_count += 1
-            badge = f'<span class="badge bg-danger">🔴 Urgent ({dias} jours)</span>' if dias >= 0 else '<span class="badge bg-danger">🔴 Expiré</span>'
-            filas_alertas += f'<tr><td class="fw-bold">{nom}</td><td>{stock} {unite}</td><td>{exp}</td><td>{badge}</td></tr>'
+            alertas.append((dias, row, exp_date))
 
+alertas.sort(key=lambda x: x[0])
+alertas_count = len(alertas)
+
+filas_alertas = ""
+for dias, row, exp_date in alertas:
+    nom = txt(row.get("Nom du Produit"))
+    stock = txt(row.get("Stock Actuel"))
+    unite = txt(row.get("Unité"))
+    if dias < 0:
+        badge = '<span class="badge bg-danger">🔴 Expiré</span>'
+    else:
+        badge = f'<span class="badge bg-danger">🔴 Urgent ({dias} jours)</span>'
+    filas_alertas += (
+        f'<tr><td class="fw-bold">{nom}</td><td>{stock} {unite}</td>'
+        f'<td>{exp_date.strftime("%d/%m/%Y")}</td><td>{badge}</td></tr>'
+    )
+
+sin_alertas = '<tr><td colspan="4" class="text-center text-muted">Aucun produit en alerte</td></tr>'
+
+# ---------- HTML ----------
 html_dashboard = f"""
 <!DOCTYPE html>
 <html lang="fr">
@@ -94,7 +135,7 @@ html_dashboard = f"""
     <div class="header-card d-flex justify-content-between align-items-center">
       <div>
         <h3 class="m-0 fw-bold"><i class="bi bi-bar-chart-fill text-warning me-2"></i>Tableau de Bord</h3>
-        <p class="text-muted m-0 small mt-1">Données en temps réel synchronisées avec Google Sheets</p>
+        <p class="text-muted m-0 small mt-1">Données synchronisées avec Google Sheets (mise à jour chaque minute)</p>
       </div>
     </div>
 
@@ -113,7 +154,7 @@ html_dashboard = f"""
             <tr><th>Produit</th><th>Quantité</th><th>Date de Péremption</th><th>Statut</th></tr>
           </thead>
           <tbody>
-            {filas_alertas if filas_alertas else '<tr><td colspan="4" class="text-center text-muted">Aucun produit en alerte</td></tr>'}
+            {filas_alertas if filas_alertas else sin_alertas}
           </tbody>
         </table>
       </div>
@@ -123,4 +164,4 @@ html_dashboard = f"""
 </html>
 """
 
-components.html(html_dashboard, height=800, scrolling=False)
+components.html(html_dashboard, height=800, scrolling=True)
