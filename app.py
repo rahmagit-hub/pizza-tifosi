@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 from datetime import datetime
 from sidebar import render_sidebar
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="PIZZA TIFOSI - Tableau de Bord",
@@ -20,8 +21,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Inicializar conexión con st-gsheets-connection
-conn = st.connection("gsheets", type="gsheets")
+# Inicializar conexión con GSheetsConnection
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
 def load_all_dashboard_data():
@@ -43,7 +44,7 @@ def load_all_dashboard_data():
 
 df_ventas, df_achats, df_inv = load_all_dashboard_data()
 
-# Conversión y procesamiento seguro de Ventas
+# Procesamiento seguro de Ventas
 if not df_ventas.empty and "Total Ventes" in df_ventas.columns:
     total_ventas_series = pd.to_numeric(
         df_ventas["Total Ventes"].astype(str).str.replace('€', '').str.replace(' ', '').str.replace(',', '.'), 
@@ -62,7 +63,7 @@ if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns:
 else:
     redevance = total_ventas * 0.03
 
-# Conversión y procesamiento seguro de Compras
+# Procesamiento seguro de Compras
 if not df_achats.empty and "Prix Total" in df_achats.columns:
     achats_series = pd.to_numeric(
         df_achats["Prix Total"].astype(str).str.replace('€', '').str.replace(' ', '').str.replace(',', '.'), 
