@@ -20,40 +20,70 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Inicializar conexión con st-gsheets-connection
 conn = st.connection("gsheets", type="gsheets")
+
 @st.cache_data(ttl=1)
 def load_all_dashboard_data():
-    try:
-        df_v = conn.read(worksheet="Ventes-Caisse", ttl=0)
-    except Exception:
-        df_v = pd.DataFrame()
-    try:
-        df_a = conn.read(worksheet="Achats-Depences", ttl=0)
-    except Exception:
-        df_a = pd.DataFrame()
-    try:
-        df_i = conn.read(worksheet="Contrôle Inventaire", ttl=0)
-    except Exception:
-        df_i = pd.DataFrame()
+    def fetch_sheet(sheet_name):
+        try:
+            df = conn.read(worksheet=sheet_name, ttl=0)
+            if df is not None and not df.empty:
+                df.columns = df.columns.astype(str).str.strip()
+                return df
+        except Exception as e:
+            st.warning(f"⚠️ Atención al cargar '{sheet_name}': {e}")
+        return pd.DataFrame()
+
+    df_v = fetch_sheet("Ventes-Caisse")
+    df_a = fetch_sheet("Achats-Depences")
+    df_i = fetch_sheet("Contrôle Inventaire")
+    
     return df_v, df_a, df_i
 
 df_ventas, df_achats, df_inv = load_all_dashboard_data()
 
-total_ventas = df_ventas["Total Ventes"].sum() if not df_ventas.empty and "Total Ventes" in df_ventas.columns else 0.0
-redevance = df_ventas["Redevance Franchise 3%"].sum() if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns else total_ventas * 0.03
-total_achats = df_achats["Prix Total"].sum() if not df_achats.empty and "Prix Total" in df_achats.columns else 0.0
+# Conversión y procesamiento seguro de Ventas
+if not df_ventas.empty and "Total Ventes" in df_ventas.columns:
+    total_ventas_series = pd.to_numeric(
+        df_ventas["Total Ventes"].astype(str).str.replace('€', '').str.replace(' ', '').str.replace(',', '.'), 
+        errors='coerce'
+    )
+    total_ventas = total_ventas_series.sum()
+else:
+    total_ventas = 0.0
 
-# Alertes péremption
+if not df_ventas.empty and "Redevance Franchise 3%" in df_ventas.columns:
+    redevance_series = pd.to_numeric(
+        df_ventas["Redevance Franchise 3%"].astype(str).str.replace('€', '').str.replace(' ', '').str.replace(',', '.'), 
+        errors='coerce'
+    )
+    redevance = redevance_series.sum()
+else:
+    redevance = total_ventas * 0.03
+
+# Conversión y procesamiento seguro de Compras
+if not df_achats.empty and "Prix Total" in df_achats.columns:
+    achats_series = pd.to_numeric(
+        df_achats["Prix Total"].astype(str).str.replace('€', '').str.replace(' ', '').str.replace(',', '.'), 
+        errors='coerce'
+    )
+    total_achats = achats_series.sum()
+else:
+    total_achats = 0.0
+
+# Alertas de caducidad
 alertas_count = 0
 filas_alertas = ""
 fecha_actual = datetime(2026, 11, 7)
 
 if not df_inv.empty:
     for _, row in df_inv.iterrows():
-        nom = str(row.get("Nom du Produit", ""))
+        nom = str(row.get("Nom du Produit", "")).strip()
         stock = row.get("Stock Actuel", 0)
-        unite = str(row.get("Unité", ""))
-        exp = str(row.get("Date d'expiration", ""))
+        unite = str(row.get("Unité", "")).strip()
+        exp = str(row.get("Date d'expiration", "")).strip()
+        
         try:
             exp_date = pd.to_datetime(exp, format='%d/%m/%Y', errors='coerce')
             if pd.isna(exp_date):
